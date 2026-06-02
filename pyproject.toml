@@ -1,0 +1,78 @@
+[project]
+name = "PyMut4SE"
+version = "0.1.0"
+description = "A Python mutation tool"
+license = { file = "LICENSE.txt" }
+keywords = ["Mutation", "python", "higer order"]
+readme = "README.md"
+authors = [
+    { name = "Laura Plein", email = "laura.plein@cispa.de" },
+    { name = "Matthieu Jimenez", email = "matthieu@jimenez.lu"}
+]
+requires-python = ">=3.13"
+
+dependencies = [
+    "loguru>=0.7.3",
+    "openai>=2.30.0",
+    "pandas>=3.0.2",
+    "pdoc>=16.0.0",
+    "pebble>=5.1.3",
+]
+
+[project.urls]
+Homepage = "https://github.com/LaPlei96/PyMut4SE"
+Documentation = "https://github.com/LaPlei96/PyMut4SE"
+Repository = "https://github.com/LaPlei96/PyMut4SE"
+"Bug Tracker" = "https://github.com/LaPlei96/PyMut4SE/issues"
+Changelog = "https://github.com/LaPlei96/PyMut4SE/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+check = [
+    "bandit>=1.9.2",
+    "ty>=0.0.8",
+    "pytest>=9.0.2",
+    "ruff>=0.14.10",
+]
+commit = ["commitizen>=4.11.0","pre-commit>=4.5.1",]
+dev = []
+doc = ["pdoc>=16.0.0"]
+notebook = []
+
+# TOOLS
+
+[tool.uv]
+default-groups = ["check", "commit", "dev", "doc", "notebook"]
+
+[tool.bandit]
+targets = ["src"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_scheme = "pep440"
+version_provider = "pep621"
+changelog_start_rev = "v1.0.0"
+update_changelog_on_bump = true
+
+[tool.pytest.ini_options]
+addopts = "--verbosity=2"
+pythonpath = ["src"]
+
+[tool.ruff]
+fix = true
+indent-width = 4
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["D100", "D103"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
