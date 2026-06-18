@@ -16,6 +16,7 @@ from pymut4se.mutations.python.standard.delete_general_stmt_mutation import Dele
 from pymut4se.mutations.python.standard.add_if_not_null import IfNotNullMutation
 from pymut4se.mutations.python.standard.type_cast_mutation import TypeCastMutation
 from pymut4se.mutations.python.standard.optional_param_mutation import OptionalParamMutation
+from pymut4se.mutations.python.standard.unary_mutation import UnaryMutation
 
 from loguru import logger
 
@@ -29,6 +30,7 @@ MUTATION_OPERATORS = {
     "IfNotNullMutation": IfNotNullMutation,
     "TypeCastMutation": TypeCastMutation,
     "OptionalParamMutation": OptionalParamMutation,
+    "UnaryMutation": UnaryMutation
 }
 
 def load_config(path: Path) -> dict:

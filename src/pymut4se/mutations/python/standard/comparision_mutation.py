@@ -9,7 +9,7 @@ class _ComparisionASTMutation(ast.NodeTransformer):
         self.mutations = []
 
     def visit_Compare(self, node):
-        compare_mutations = [ast.Eq(), ast.NotEq(), ast.Lt(), ast.LtE(), ast.Gt(), ast.GtE()]
+        compare_mutations = [ast.Eq(), ast.NotEq(), ast.Lt(), ast.LtE(), ast.Gt(), ast.GtE(), ast.Is(), ast.IsNot(), ast.In(), ast.NotIn()]
         for mutation in compare_mutations:
             for i, op in enumerate(node.ops):
                 if not isinstance(op, type(mutation)):

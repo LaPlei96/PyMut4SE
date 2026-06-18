@@ -4,13 +4,13 @@ import ast
 import copy
 
 
-class _ArithmeticASTMutation(ast.NodeTransformer):
+class _UnaryASTMutation(ast.NodeTransformer):
     def __init__(self):
         self.mutations = []
 
-    def visit_BinOp(self, node):
-        binop_mutations = [ast.Add(), ast.Sub(), ast.Mult(), ast.Div(), ast.Mod(), ast.Pow(), ast.LShift(), ast.RShift(), ast.BitOr(), ast.BitXor(), ast.FloorDiv()]
-        for mutation in binop_mutations:
+    def visit_UnaryOp(self, node):
+        unaryop_mutations = [ast.Invert(), ast.Not(), ast.UAdd(), ast.USub()]
+        for mutation in unaryop_mutations:
             if not isinstance(node.op, type(mutation)):
                 mutated_node = copy.deepcopy(node)
                 mutated_node.op = mutation
@@ -18,9 +18,9 @@ class _ArithmeticASTMutation(ast.NodeTransformer):
         return self.generic_visit(node)
 
 
-class ArithmeticMutation(PythonMutation):
+class UnaryMutation(PythonMutation):
     def _find_mutation_points(self, parsed_code) -> list:
-        generator = _ArithmeticASTMutation()
+        generator = _UnaryASTMutation()
         generator.visit(parsed_code)
         return generator.mutations
 
@@ -30,7 +30,7 @@ class ArithmeticMutation(PythonMutation):
             new_tree = copy.deepcopy(parsed_code)
             for node in ast.walk(new_tree):
                 if isinstance(node, type(mutated_node)) and hasattr(node, "lineno") and node.lineno == line:
-                    if isinstance(node, ast.BinOp):
+                    if isinstance(node, ast.UnaryOp):
                         node.op = mutated_node.op
                     elif isinstance(node, ast.Compare):
                         node.ops = mutated_node.ops
@@ -43,7 +43,7 @@ class ArithmeticMutation(PythonMutation):
                 original_code=code.original_code,
                 parent_id=code.chunk_id,
                 line_changed=line,
-                mutation_type="arithmetic",
+                mutation_type="unary",
                 mutation_operator=type(mutated_node.op).__name__,
                 mutation_tool="Standard",
             )
