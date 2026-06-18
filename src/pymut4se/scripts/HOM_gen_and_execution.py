@@ -17,7 +17,7 @@ from pymut4se.mutations.python.standard.add_if_not_null import IfNotNullMutation
 from pymut4se.mutations.python.standard.type_cast_mutation import TypeCastMutation
 from pymut4se.mutations.python.standard.optional_param_mutation import OptionalParamMutation
 from pymut4se.mutations.python.standard.unary_mutation import UnaryMutation
-
+from pymut4se.mutations.python.standard.constant_mutation import ConstantMutation
 from loguru import logger
 
 import sqlite3
@@ -30,7 +30,8 @@ MUTATION_OPERATORS = {
     "IfNotNullMutation": IfNotNullMutation,
     "TypeCastMutation": TypeCastMutation,
     "OptionalParamMutation": OptionalParamMutation,
-    "UnaryMutation": UnaryMutation
+    "UnaryMutation": UnaryMutation,
+    "ConstantMutation": ConstantMutation
 }
 
 def load_config(path: Path) -> dict:
@@ -189,7 +190,6 @@ def generate_and_store_mutants(base_chunk, operator_names, cursor):
                 continue
         mutants.extend(results)
 
-     
 
     changed_mutants = [
         {**vars(row), "chunk_id": str(row.chunk_id), "location": str(row.location), "original_code": str(row.original_code), "parent_id": str(row.parent_id)}
