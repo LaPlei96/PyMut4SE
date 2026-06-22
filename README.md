@@ -1,129 +1,56 @@
 # PyMut4SE
 
-PyMut4SE is a Python mutation-generation and execution tool. This version focuses on generating first-order and higher-order mutants for Python functions, executing them against configured inputs, and storing the results in SQLite.
+PyMut4SE explores Python projects into a SQLAlchemy object graph, generates
+first- and higher-order function mutants, and executes those chunks against
+predetermined inputs or their related pytest cases.
 
-The repository includes a ready-to-run QuixBugs example dataset to replicate the experiments done for the "Neural Change Prediction: Relating Software Changes to Their Effects and Vice Versa" paper.
+The project is under active development. The current API supports:
 
-PyMut4SE is currently under development with a release planned in the next months.
+- exploration from a Python file, `src` directory, or project root;
+- persisted projects, dependencies, source structure, tests, mutants, inputs,
+  and execution results;
+- AST-based generic mutation operators;
+- reusable project virtual environments;
+- cached function and pytest execution; and
+- bounded parallel pytest execution across multiple chunks.
 
-## Current Scope
+## Installation
 
-Supported today:
-
-- Generate Python mutants from configured source files.
-- Generate higher-order mutants up to a requested mutation degree.
-- Execute original code and mutants in standalone mode.
-- Store code chunks, inputs, environments, and outputs in SQLite.
-- Run QuixBugs examples from existing JSON configs.
-
-Not released yet:
-
-- Full mutation-testing reports with expected-output comparison.
-- `project` and `project-container` execution modes.
-- Complete operator set planned for the future release.
-
-## Requirements
-
-- Python `>=3.13`
-- `uv`
-- `sqlite3`, only needed for `generate.sh`
-
-Install dependencies:
+PyMut4SE requires Python 3.13 or newer. With [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
 uv sync
 ```
 
-## QuixBugs Run Sequence
-
-Use this sequence from the repository root to generate and execute mutants on QuixBugs.
-
-1. Install dependencies:
+Run the checks with:
 
 ```bash
-uv sync
+uv run pytest
+uv run ruff check .
+uv run ty check
 ```
 
-2. Generate QuixBugs config files: (only needs to be done once)
+## Start here
 
-```bash
-uv run python src/datasets/quixbugs/config_generator.py
-```
+The [getting-started guide](docs/getting-started.md) walks through the complete
+flow: explore and persist a project, choose a code chunk, generate mutants,
+prepare its virtual environment, execute inputs and related tests, and save the
+results.
 
-3. Create a database by running:
-```
-uv run database/db_setup_quixbugs.py 
-```
+Reference documentation:
 
-4. Run one QuixBugs program first, for a quick test:
+- [Project exploration](docs/exploration.md)
+- [ORM models and relationships](docs/models.md)
+- [Mutation generation](docs/mutation.md)
+- [Generic mutation operators](docs/operators.md)
+- [Execution and reusable environments](docs/execution.md)
 
-```bash
-uv run python -m pymut4se.scripts.HOM_gen_and_execution --config conf/quix_bugs_gen/quicksort_config.json --degree 1 --db quixbugs.db
-```
+## Safety and current limitations
 
-5. Inspect the test database:
+Explored projects and serialized inputs are trusted code. Their dependencies
+are installed and their modules and tests execute as local subprocesses; the
+virtual environment and timeout controls are not a security sandbox.
 
-```bash
-sqlite3 quixbugs.db '.tables'
-sqlite3 quixbugs.db 'select count(*) from code_chunk'
-sqlite3 quixbugs.db 'select success, count(*) from execution_output group by success;'
-```
-
-6. Run all QuixBugs configs and merge the results:
-
-```bash
-./generate.sh \
-  --config-dir conf/quix_bugs_gen \
-  --degree 1 \
-  --parallel 4 \
-  --merged-db merged_hom.db \
-  --db-dir tmp_hom_dbs
-```
-
-7. Inspect the merged database:
-
-```bash
-sqlite3 merged_hom.db '.tables'
-sqlite3 merged_hom.db 'select function_name, mutation_degree, count(*) from code_chunk group by function_name, mutation_degree order by function_name, mutation_degree;'
-sqlite3 merged_hom.db 'select success, count(*) from execution_output group by success;'
-```
-
-Start with `--degree 1`. Higher degrees can produce many more mutants and take substantially longer. The amount of workers running in ``--parallel`` can be increased or decreased based on your hardware.
-
-## Database Tables
-
-The SQLite schema contains:
-
-- `code_chunk`: original and mutated code.
-- `input`: function inputs and execution settings.
-- `project`: reserved for project-level execution metadata.
-- `execution_environment`: local/container execution metadata.
-- `execution_output`: execution results.
-
-## Running External Code Against Stored Inputs
-
-`exec_input.py` executes a code string or code file against all inputs already stored for a function.
-
-```bash
-uv run python -m pymut4se.scripts.exec_input \
-  --db quixbugs.db \
-  --function-name quicksort \
-  --code 'def quicksort(arr): return sorted(arr)'
-```
-
-Or with a file:
-
-```bash
-uv run python -m pymut4se.scripts.exec_input \
-  --db quixbugs.db \
-  --function-name quicksort \
-  --code-file src/datasets/quixbugs/src/quicksort.py
-```
-
-## Known Limitations
-
-- Standalone execution is the only mode currently available (the other will come with the release).
-- Expected outputs are stored in dataset files but not used for verdicts.
-- Higher mutation degrees can grow quickly.
-- `generate.sh` requires the `sqlite3` CLI.
-- `quixbugs.db` may not contain tables until the schema setup script or a generation run creates them.
+Test-to-code associations are inferred statically and may need manual
+correction for dynamic imports or indirect calls. Mutation counts can also grow
+quickly at higher degrees, so begin with `max_degree=1` and a focused chunk.
