@@ -4,6 +4,28 @@ This guide follows one project from source discovery to persisted mutation and
 execution results. It uses SQLite for storage, but the models work with any
 SQLAlchemy-supported database.
 
+For the shortest route through this workflow, use the
+[high-level API](api.md):
+
+```python
+from pymut4se.api import discover
+
+workspace = discover("path/to/target-project")
+print(workspace.statistics())
+
+chunks = workspace.find_chunks("function_to_mutate")
+mutants = workspace.mutate(
+    chunks,
+    operators=["arithmetic", "relational", "logical-connector"],
+)
+print(workspace.mutant_statistics())
+
+workspace.run_tests(mutants, parallel=True, max_workers=4)
+```
+
+The remaining sections show the underlying exploration, model, mutation, and
+execution APIs for users who need direct transaction and object-graph control.
+
 ## 1. Install PyMut4SE
 
 PyMut4SE requires Python 3.13 or newer. From this repository:

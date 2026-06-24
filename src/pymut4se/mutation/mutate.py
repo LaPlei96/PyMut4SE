@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Sequence
 from textwrap import dedent
-from typing import Type, Union
+from typing import Callable, Optional, Type, Union
 
 from pymut4se.model import CodeChunk, Module, Package
 from pymut4se.mutation.mutation import Mutation
@@ -16,6 +16,8 @@ def generate_mutants(
     target: MutationTarget,
     mutation_operators: Sequence[MutationOperator],
     max_degree: int,
+    *,
+    on_mutant: Optional[Callable[[CodeChunk], None]] = None,
 ) -> list[CodeChunk]:
     """Generate mutants for a code chunk, module, or package ORM graph.
 
@@ -58,6 +60,8 @@ def generate_mutants(
                     seen_states.add(mutant_state)
                     mutants.append(mutant)
                     next_generation.append(mutant)
+                    if on_mutant is not None:
+                        on_mutant(mutant)
 
         current_generation = next_generation
 

@@ -39,6 +39,7 @@ results.
 
 Reference documentation:
 
+- [High-level workflow API](docs/api.md)
 - [Project exploration](docs/exploration.md)
 - [ORM models and relationships](docs/models.md)
 - [Mutation generation](docs/mutation.md)

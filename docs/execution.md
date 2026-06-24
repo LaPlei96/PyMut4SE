@@ -24,7 +24,10 @@ unavailable manifest, installation falls back to
 `project.get_requirement_strings()`.
 
 Pytest is installed as execution infrastructure after project dependencies, even
-when the project does not declare it directly.
+when the project has no dependency manifest and does not declare pytest itself.
+Preparation verifies that pytest can actually be imported from the venv; an
+existing incomplete environment is repaired even when its dependency
+fingerprint has not changed.
 
 A requirements fingerprint is stored inside the environment. Later calls reuse
 the venv without reinstalling unchanged dependencies. Pass
@@ -67,6 +70,11 @@ original. Execute all of them with:
 ```python
 test_executions = executor.execute_related_tests(mutant, environment)
 ```
+
+When no related cases were inferred, execution falls back to every discovered
+test case in the project. Disable that behavior with
+`fallback_to_full_suite=False` when an empty result is preferable to the cost of
+running the full suite.
 
 The project and substituted module are built once. Test files—including sibling
 `tests/` directories discovered when exploring `src/`—are copied from their

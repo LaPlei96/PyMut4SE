@@ -54,8 +54,8 @@ class TestExecutionOutput(Base):
         if not environment_id:
             msg = "environment_id must not be empty"
             raise ValueError(msg)
-        if test_case not in code_chunk.related_test_cases:
-            msg = "test_case must be related to code_chunk"
+        if test_case not in code_chunk.related_test_cases and not _belongs_to_same_project(code_chunk, test_case):
+            msg = "test_case must be related to code_chunk or belong to the same project"
             raise ValueError(msg)
         try:
             normalized_output = json.dumps(output, sort_keys=True, separators=(",", ":"))
@@ -92,3 +92,14 @@ class TestExecutionOutput(Base):
 
 from pymut4se.model.code_chunk import CodeChunk  # noqa: E402
 from pymut4se.model.test import TestCase  # noqa: E402
+
+
+def _belongs_to_same_project(code_chunk: CodeChunk, test_case: TestCase) -> bool:
+    chunk_project = code_chunk.project or (code_chunk.module.project if code_chunk.module is not None else None)
+    test_project = test_case.project
+    if chunk_project is not None and test_project is not None:
+        return chunk_project is test_project or chunk_project.project_id == test_project.project_id
+    chunk_project_id = code_chunk.project_id or (
+        code_chunk.module.project_id if code_chunk.module is not None else None
+    )
+    return chunk_project_id is not None and chunk_project_id == test_case.project_id

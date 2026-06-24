@@ -1,0 +1,345 @@
+# High-level API
+
+The `pymut4se.api` package provides a guided workflow for the usual PyMut4SE
+journey. It keeps the discovered ORM objects available, but removes most of the
+coordination code needed to move from exploration to mutation and execution.
+
+## Discover and understand a project
+
+```python
+from pymut4se.api import discover
+
+workspace = discover("path/to/project")
+
+print(workspace.project.name)
+print(workspace.statistics())
+print(workspace.statistics().as_dict())
+```
+
+The statistics include package, module, original-chunk, test, test-target, and
+requirement counts. The discovered entities remain ordinary SQLAlchemy models:
+
+```python
+workspace.packages
+workspace.modules
+workspace.chunks  # degree-zero chunks discovered from source
+```
+
+All objects returned through the high-level API have concise `str()` and
+`repr()` output. This also makes lists readable in notebooks:
+
+```python
+workspace
+# MutationWorkspace(project='example', modules=4, chunks=12, mutants=0, inputs=0)
+
+workspace.find_chunks("normalize")
+# [CodeChunk(function_name='normalize', mutation_degree=0, id='7a41c9e2…')]
+
+print(workspace.statistics())
+# ProjectStatistics(packages=2, modules=4, chunks=12, tests=8, ...)
+```
+
+Representations deliberately omit full source, output payloads, and
+relationships. IDs are abbreviated for display only; the complete values remain
+available on their normal model attributes.
+
+Search helpers accept a case-insensitive substring or shell-style glob and
+match IDs, qualified names, and paths:
+
+```python
+packages = workspace.find_packages("pymut4se.mutation")
+modules = workspace.find_modules("*generic*")
+chunks = workspace.find_chunks("optional_parameter")
+chunk = workspace.find_chunks(f"{module.name}:{function_name}")[0]
+```
+
+### How search queries work
+
+Queries are always case-insensitive. A query without special characters is a
+substring search, so it does not need surrounding wildcards:
+
+```python
+workspace.find_modules("optional")
+# Matches names or paths containing "optional", such as
+# pymut4se.mutation.generic.optional_parameter
+```
+
+If a query contains `*`, `?`, or `[`, it is interpreted as a shell-style glob
+over the complete value instead:
+
+| Pattern | Meaning | Example |
+| --- | --- | --- |
+| `*` | Any number of characters, including none | `"pymut4se.*.utils"` |
+| `?` | Exactly one character | `"package.module?"` |
+| `[abc]` | One character from the set | `"module[123]"` |
+| `[a-z]` | One character from the range | `"module[a-c]"` |
+| `[!abc]` | One character not in the set | `"module[!0]"` |
+
+Because glob mode matches the complete candidate value, add `*` at the edges
+when only part of that value matters:
+
+```python
+workspace.find_modules("*generic*")
+workspace.find_chunks("*.service:handle_?")
+workspace.find_mutants("*normalize*")
+```
+
+`"*"` and an empty query return every object in that collection. To match a
+literal opening bracket in glob mode, write `[[]`.
+
+Each search method checks slightly different candidate values:
+
+| Method | Values searched |
+| --- | --- |
+| `find_packages()` | Package ID, dotted name, relative path |
+| `find_modules()` | Module ID, dotted name, relative path |
+| `find_chunks()` | Chunk ID, qualified function name, `module:function` label |
+| `find_mutants()` | Mutant ID, qualified function name, original chunk ID |
+
+`find_mutants()` can additionally filter the matched results by concrete
+mutation operator and degree:
+
+```python
+workspace.find_mutants(
+    "*normalize*",
+    operator="Add",
+    degree=1,
+)
+```
+
+The `operator` filter is also case-insensitive and checks whether the supplied
+text occurs in the stored concrete operator name. It is not a glob query.
+
+## Inspect the operator catalogue
+
+```python
+for operator in workspace.operators():
+    print(operator.name, operator.class_name, operator.description)
+```
+
+The stable friendly names, such as `arithmetic`, `logical-connector`, and
+`delete-return`, can be passed directly to `mutate`. Operator classes and
+instances from `pymut4se.mutation.generic` are accepted too.
+
+Select the complete implemented catalogue with `"all"` (or `"*"`):
+
+```python
+mutants = workspace.mutate(
+    chunks,
+    operators="all",
+    max_degree=1,
+)
+```
+
+A single name does not need to be wrapped in a list. `OperatorInfo` entries
+returned by `workspace.operators()` can also be passed directly or in a list.
+
+## Mutate selected code
+
+Select any mixture of packages, modules, or chunks:
+
+```python
+targets = [
+    *workspace.find_modules("calculator.core"),
+    *workspace.find_chunks("normalize"),
+]
+
+new_mutants = workspace.mutate(
+    targets,
+    operators=["arithmetic", "relational", "logical-connector"],
+    max_degree=1,
+)
+```
+
+Package selection includes descendant packages. If selections overlap, each
+original chunk is mutated once. Mutants accumulated by the workspace are
+available through `workspace.mutants`; each call returns only mutants newly
+generated by that call.
+
+Explore the result with:
+
+```python
+print(workspace.mutant_statistics())
+
+arithmetic = workspace.find_mutants(
+    "normalize",
+    operator="Add",
+    degree=1,
+)
+
+for mutant in arithmetic:
+    print(mutant.function_name, mutant.mutation_type, mutant.mutation_operator)
+    print(mutant.code)
+```
+
+Mutant statistics are grouped by degree, mutation type, and concrete operator,
+and include recorded input/test execution counts.
+
+## Add inputs or inspect related tests
+
+Inputs added to either an original or a mutant are stored on its degree-zero
+original and apply to every derived mutant:
+
+```python
+workspace.add_input(
+    chunk,
+    arguments=(3, 5),
+    label="function_name(3, 5)",
+)
+
+workspace.add_text_input(
+    chunk,
+    '{"args": [3, 5], "kwargs": {}}',
+)
+```
+
+`add_input` serializes trusted Python values with pickle. Use `add_text_input`
+for JSON or literal data from less trusted sources.
+
+Review statically inferred tests before running them:
+
+```python
+for test_case in workspace.tests_for(chunk):
+    print(test_case.name)
+```
+
+## Execute
+
+The workspace prepares and reuses the project environment automatically on the
+first execution call:
+
+```python
+input_outputs = workspace.run_inputs(new_mutants, timeout_seconds=5)
+
+test_outputs = workspace.run_tests(
+    new_mutants,
+    parallel=True,
+    max_workers=4,
+    timeout_seconds=20,
+)
+```
+
+If a chunk has inferred related tests, only those tests are selected. If it has
+no related tests, PyMut4SE runs every discovered project test by default. This
+fallback avoids silently classifying a mutant as untested when static target
+inference misses an indirect or dynamic dependency. It can be disabled for very
+large suites:
+
+```python
+test_outputs = workspace.run_tests(
+    mutants,
+    fallback_to_full_suite=False,
+)
+```
+
+The high-level API prints lightweight progress by default. Mutant generation
+keeps a cumulative count of new unique mutants and separately reports completed
+source chunks. Input and test execution report completed chunks:
+
+```text
+Generating mutants: 148 new | chunks processed: 12/12
+Executing inputs: 148/148 | 296 outputs
+Executing tests: 148/148
+```
+
+Parallel test progress updates whenever a worker completes a chunk. Cached
+chunks also count as completed, so the display reaches the total even when no
+new subprocess is needed. Disable output for services, scripts, or nested
+progress displays with `show_progress=False`:
+
+```python
+mutants = workspace.mutate(chunks, operators="all", show_progress=False)
+outputs = workspace.run_tests(mutants, show_progress=False)
+environment = workspace.prepare_environment(show_progress=False)
+```
+
+## Mutation score
+
+After running related tests, calculate the mutation score for all known mutants
+or a selected subset:
+
+```python
+score = workspace.mutation_score()
+print(score)
+# MutationScore(score=81.25%, killed=65, survived=15, untested=4,
+#               incomplete=2, errors=1)
+
+score.percentage
+score.as_dict()
+```
+
+The score is:
+
+```text
+killed / (killed + survived)
+```
+
+The classifications are deliberately explicit:
+
+| Outcome | Meaning |
+| --- | --- |
+| Killed | At least one related test failed with pytest return code `1`. |
+| Survived | Every related test has a successful result. |
+| Untested | No project tests exist, or no applicable tests were executed. |
+| Incomplete | Some tests passed, but not every related test was executed. |
+| Errors | Pytest failed for an infrastructure, collection, interruption, or timeout reason. |
+
+Untested, incomplete, and error mutants are excluded from the denominator rather
+than being counted as survivors. If no mutant was conclusively assessed,
+`score.score` and `score.percentage` are `None` and its display shows `N/A`.
+The calculation assumes that the selected tests pass against the original code;
+run the originals first when that baseline is not already known to be green.
+
+When the workspace has a prepared environment, its environment ID is selected
+automatically. To score persisted results from a specific environment instead:
+
+```python
+score = workspace.mutation_score(mutants, environment_id="environment-id")
+```
+
+If persisted results contain multiple environments and the workspace has no
+active environment, an explicit `environment_id` is required rather than mixing
+incompatible runs.
+
+When `chunks` is omitted, execution targets every mutant known to the workspace,
+or all original chunks if no mutants have been generated. Existing execution
+rows for the same chunk/input/test/environment are reused by the lower-level
+executors.
+
+Environment preparation installs project dependencies and pytest, and execution
+runs arbitrary target code. Only use trusted projects. To prepare explicitly or
+force a dependency refresh:
+
+```python
+environment = workspace.prepare_environment(refresh_requirements=True)
+```
+
+## Persist
+
+The workspace does not silently create or commit a database. Give it a
+caller-owned SQLAlchemy session when the accumulated graph should be saved:
+
+```python
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+
+from pymut4se.model import Base
+
+engine = create_engine("sqlite:///pymut4se.db")
+Base.metadata.create_all(engine)
+
+with Session(engine) as session:
+    workspace.save(session, commit=True)
+```
+
+`save` adds the project, generated mutants, inputs, and execution outputs. Pass
+`commit=False` (the default) when transaction ownership belongs to a larger
+application.
+
+## Lower-level escape hatches
+
+The façade deliberately returns the existing ORM and execution objects. Use the
+lower-level [exploration](exploration.md), [models](models.md),
+[mutation](mutation.md), and [execution](execution.md) APIs whenever custom
+queries, operator instances, environment placement, or transaction control need
+more precision.

@@ -128,10 +128,15 @@ class StandalonePythonExecution:
         environment: PythonExecutionEnvironment,
         *,
         extra_env: Optional[dict[str, str]] = None,
+        fallback_to_full_suite: bool = True,
     ) -> list[TestExecutionOutput]:
-        """Run every related test case against one shared mutant workspace."""
+        """Run related tests, or the full project suite when no relation exists."""
         module, project = self._validate_execution_context(code_chunk, environment)
-        test_cases = list(code_chunk.related_test_cases)
+        test_cases = self._test_cases_for_execution(
+            code_chunk,
+            project,
+            fallback_to_full_suite=fallback_to_full_suite,
+        )
         outputs_by_test = {}
         pending_tests = []
         for test_case in test_cases:
@@ -155,6 +160,18 @@ class StandalonePythonExecution:
                         extra_env,
                     )
         return [outputs_by_test[test_case.test_id] for test_case in test_cases]
+
+    @staticmethod
+    def _test_cases_for_execution(
+        code_chunk: CodeChunk,
+        project: Project,
+        *,
+        fallback_to_full_suite: bool,
+    ) -> list[TestCase]:
+        related = list(code_chunk.related_test_cases)
+        if related or not fallback_to_full_suite:
+            return related
+        return list(project.test_cases)
 
     @staticmethod
     def _validate_execution_context(

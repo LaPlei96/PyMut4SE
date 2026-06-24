@@ -59,7 +59,9 @@ class PythonExecutionEnvironment:
 
     @property
     def is_current(self) -> bool:
-        """Return whether installed requirements match the project's fingerprint."""
+        """Return whether dependencies match and the pytest runner is available."""
+        if not self.is_prepared or not self._is_pytest_available():
+            return False
         marker = self.path / ".pymut4se-requirements"
         if marker.is_file():
             return marker.read_text(encoding="utf-8") == self._requirements_fingerprint()
@@ -80,27 +82,45 @@ class PythonExecutionEnvironment:
         fingerprint = self._requirements_fingerprint()
         marker = self.path / ".pymut4se-requirements"
         installed_fingerprint = marker.read_text(encoding="utf-8") if marker.is_file() else ""
-        if refresh_requirements or installed_fingerprint != fingerprint:
-            self._install_requirements()
+        requirements_changed = refresh_requirements or installed_fingerprint != fingerprint
+        if requirements_changed:
+            self._install_project_requirements()
+        if not self._is_pytest_available():
+            self._install_pytest()
+        if requirements_changed:
             marker.write_text(fingerprint, encoding="utf-8")
         return self
 
-    def _install_requirements(self) -> None:
-        requirement_path = Path(self.project.requirements_path) if self.project.requirements_path else None
-        base_command = [
+    def _pip_install_command(self) -> list[str]:
+        return [
             str(self.python_executable),
             "-m",
             "pip",
             "install",
             "--disable-pip-version-check",
         ]
+
+    def _install_project_requirements(self) -> None:
+        requirement_path = Path(self.project.requirements_path) if self.project.requirements_path else None
+        base_command = self._pip_install_command()
         if requirement_path is not None and requirement_path.is_file() and requirement_path.suffix.lower() == ".txt":
             subprocess.run([*base_command, "-r", str(requirement_path)], check=True)
         else:
             requirements = self.project.get_requirement_strings()
             if requirements:
                 subprocess.run([*base_command, *requirements], check=True)
-        subprocess.run([*base_command, "pytest"], check=True)
+
+    def _install_pytest(self) -> None:
+        subprocess.run([*self._pip_install_command(), "pytest"], check=True)
+
+    def _is_pytest_available(self) -> bool:
+        completed = subprocess.run(
+            [str(self.python_executable), "-c", "import pytest"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return completed.returncode == 0
 
     def _requirements_fingerprint(self) -> str:
         identity = json.dumps(

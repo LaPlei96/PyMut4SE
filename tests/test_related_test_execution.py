@@ -18,7 +18,7 @@ def _explored_project(temp_path: Path):
     source_path.mkdir()
     tests_path.mkdir()
     (source_path / "application.py").write_text(
-        "def add(left, right):\n    return left + right\n",
+        "def add(left, right):\n    return left + right\n\ndef other():\n    return None\n",
         encoding="utf-8",
     )
     (tests_path / "test_application.py").write_text(
@@ -107,27 +107,21 @@ def test_related_tests_observe_the_mutated_module_and_outputs_persist(temp_path:
         assert stored in stored.test_case.execution_outputs
 
 
-def test_chunk_without_related_tests_returns_no_executions(temp_path: Path, monkeypatch) -> None:
+def test_chunk_without_related_tests_runs_the_full_suite_by_default(temp_path: Path) -> None:
     result = _explored_project(temp_path)
-    unrelated = CodeChunk(
-        "def other():\n    return None",
-        result.modules[0].module_id,
-        "other",
-        "function",
-        1,
-        2,
-        project_id=result.project.project_id,
-    )
-    result.modules[0].code_chunks.append(unrelated)
-    result.project.code_chunks.append(unrelated)
+    unrelated = next(chunk for chunk in result.code_chunks if chunk.function_name == "other")
     environment = PythonExecutionEnvironment(result.project, Path(sys.prefix))
 
-    def fail_if_built(_code_chunk: CodeChunk) -> str:
-        raise AssertionError("a chunk without related tests should not be built")
+    executions = StandalonePythonExecution().execute_related_tests(unrelated, environment)
 
-    monkeypatch.setattr(
-        "pymut4se.execution.standalone_execution.build_mutant",
-        fail_if_built,
+    assert len(executions) == len(result.test_cases) == 2
+    assert all(execution.success for execution in executions)
+
+    assert (
+        StandalonePythonExecution().execute_related_tests(
+            unrelated,
+            environment,
+            fallback_to_full_suite=False,
+        )
+        == []
     )
-
-    assert StandalonePythonExecution().execute_related_tests(unrelated, environment) == []

@@ -5,7 +5,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 from pymut4se.execution.environment import PythonExecutionEnvironment
 from pymut4se.execution.standalone_execution import (
@@ -54,17 +54,27 @@ class ParallelExecution:
         environment: PythonExecutionEnvironment,
         *,
         extra_env: Optional[dict[str, str]] = None,
+        on_chunk_complete: Optional[Callable[[CodeChunk, int, int], None]] = None,
+        fallback_to_full_suite: bool = True,
     ) -> list[TestExecutionOutput]:
         """Run missing chunk/test pairs in parallel and attach results centrally."""
         chunks = list({chunk.chunk_id: chunk for chunk in code_chunks}.values())
         outputs: dict[tuple[str, str], TestExecutionOutput] = {}
         tests_by_key: dict[tuple[str, str], TestCase] = {}
+        selected_tests_by_chunk: dict[str, list[TestCase]] = {}
         plans = []
+        completed_chunks = 0
 
         for code_chunk in chunks:
             module, project = self.standalone._validate_execution_context(code_chunk, environment)
+            test_cases = self.standalone._test_cases_for_execution(
+                code_chunk,
+                project,
+                fallback_to_full_suite=fallback_to_full_suite,
+            )
+            selected_tests_by_chunk[code_chunk.chunk_id] = test_cases
             pending_tests = []
-            for test_case in code_chunk.related_test_cases:
+            for test_case in test_cases:
                 key = (code_chunk.chunk_id, test_case.test_id)
                 tests_by_key[key] = test_case
                 existing = self.standalone._existing_test_execution(
@@ -86,6 +96,10 @@ class ParallelExecution:
                         test_cases=tuple(_test_case_plan(test_case) for test_case in pending_tests),
                     )
                 )
+            else:
+                completed_chunks += 1
+                if on_chunk_complete is not None:
+                    on_chunk_complete(code_chunk, completed_chunks, len(chunks))
 
         chunks_by_id = {chunk.chunk_id: chunk for chunk in chunks}
         if plans:
@@ -119,9 +133,14 @@ class ParallelExecution:
                             return_code=result.return_code,
                             time_taken=result.time_taken,
                         )
+                    completed_chunks += 1
+                    if on_chunk_complete is not None:
+                        on_chunk_complete(code_chunk, completed_chunks, len(chunks))
 
         return [
-            outputs[(chunk.chunk_id, test_case.test_id)] for chunk in chunks for test_case in chunk.related_test_cases
+            outputs[(chunk.chunk_id, test_case.test_id)]
+            for chunk in chunks
+            for test_case in selected_tests_by_chunk[chunk.chunk_id]
         ]
 
 
@@ -132,12 +151,20 @@ def execute_related_tests_parallel(
     max_workers: Optional[int] = None,
     timeout_seconds: float = 2.0,
     extra_env: Optional[dict[str, str]] = None,
+    on_chunk_complete: Optional[Callable[[CodeChunk, int, int], None]] = None,
+    fallback_to_full_suite: bool = True,
 ) -> list[TestExecutionOutput]:
     """Convenience wrapper for bounded parallel related-test execution."""
     return ParallelExecution(
         max_workers=max_workers,
         timeout_seconds=timeout_seconds,
-    ).execute_related_tests(code_chunks, environment, extra_env=extra_env)
+    ).execute_related_tests(
+        code_chunks,
+        environment,
+        extra_env=extra_env,
+        on_chunk_complete=on_chunk_complete,
+        fallback_to_full_suite=fallback_to_full_suite,
+    )
 
 
 def _execute_chunk_plan(
