@@ -1,6 +1,6 @@
 [project]
 name = "PyMut4SE"
-version = "0.1.0"
+version = "1.0.0"
 description = "A Python mutation tool"
 license = { file = "LICENSE.txt" }
 keywords = ["mutation testing", "python", "higher-order mutation"]
@@ -49,7 +49,6 @@ name = "cz_conventional_commits"
 tag_format = "v$version"
 version_scheme = "pep440"
 version_provider = "pep621"
-changelog_start_rev = "v1.0.0"
 update_changelog_on_bump = true
 
 [tool.pytest.ini_options]
