@@ -11,3 +11,4 @@ dist/
 .ruff_cache
 .venv
 .vscode
+uv.lock
