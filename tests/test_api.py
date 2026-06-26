@@ -110,7 +110,8 @@ def test_can_mutate_only_chunks_with_related_tests(temp_path: Path) -> None:
 
     assert [chunk.function_name for chunk in tested_chunks] == ["add"]
     assert mutants
-    assert {mutant.original.function_name for mutant in mutants} == {"add"}
+    assert all(mutant.original is not None for mutant in mutants)
+    assert {mutant.original.function_name for mutant in mutants if mutant.original is not None} == {"add"}
     assert workspace.find_mutants("subtract") == []
     assert workspace.chunks_with_tests(include_mutants=True) == [*tested_chunks, *mutants]
 

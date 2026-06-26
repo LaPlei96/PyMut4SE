@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import subprocess
+import subprocess  # nosec B404
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -74,7 +74,7 @@ class PythonExecutionEnvironment:
             subprocess.run(
                 [str(self.system_python), "-m", "venv", str(self.path)],
                 check=True,
-            )
+            )  # nosec B603
             if not self.is_prepared:
                 msg = f"virtual environment did not create a Python executable: {self.python_executable}"
                 raise RuntimeError(msg)
@@ -104,14 +104,14 @@ class PythonExecutionEnvironment:
         requirement_path = Path(self.project.requirements_path) if self.project.requirements_path else None
         base_command = self._pip_install_command()
         if requirement_path is not None and requirement_path.is_file() and requirement_path.suffix.lower() == ".txt":
-            subprocess.run([*base_command, "-r", str(requirement_path)], check=True)
+            subprocess.run([*base_command, "-r", str(requirement_path)], check=True)  # nosec B603
         else:
             requirements = self.project.get_requirement_strings()
             if requirements:
-                subprocess.run([*base_command, *requirements], check=True)
+                subprocess.run([*base_command, *requirements], check=True)  # nosec B603
 
     def _install_pytest(self) -> None:
-        subprocess.run([*self._pip_install_command(), "pytest"], check=True)
+        subprocess.run([*self._pip_install_command(), "pytest"], check=True)  # nosec B603
 
     def _is_pytest_available(self) -> bool:
         completed = subprocess.run(
@@ -119,7 +119,7 @@ class PythonExecutionEnvironment:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
-        )
+        )  # nosec B603
         return completed.returncode == 0
 
     def _requirements_fingerprint(self) -> str:

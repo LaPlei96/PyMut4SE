@@ -42,6 +42,7 @@ default-groups = ["check", "commit", "dev", "doc", "notebook"]
 
 [tool.bandit]
 targets = ["src"]
+exclude_dirs = ["src/.pymut4se"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"

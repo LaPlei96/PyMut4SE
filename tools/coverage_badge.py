@@ -2,32 +2,39 @@ from __future__ import annotations
 
 import html
 import sys
+import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        print("usage: coverage_badge.py COVERAGE_XML OUTPUT_SVG", file=sys.stderr)
+    if len(sys.argv) != 4 or sys.argv[1] not in {"coverage", "version"}:
+        print(
+            "usage: coverage_badge.py {coverage COVERAGE_XML|version PYPROJECT_TOML} OUTPUT_SVG",
+            file=sys.stderr,
+        )
         return 2
 
-    coverage_xml = Path(sys.argv[1])
-    output_svg = Path(sys.argv[2])
-    label, color = _coverage_label_and_color(coverage_xml)
+    command = sys.argv[1]
+    source = Path(sys.argv[2])
+    output_svg = Path(sys.argv[3])
+    label, value, color = (
+        _coverage_badge_parts(source) if command == "coverage" else _version_badge_parts(source)
+    )
     output_svg.parent.mkdir(parents=True, exist_ok=True)
-    output_svg.write_text(_badge_svg("coverage", label, color), encoding="utf-8")
+    output_svg.write_text(_badge_svg(label, value, color), encoding="utf-8")
     return 0
 
 
-def _coverage_label_and_color(coverage_xml: Path) -> tuple[str, str]:
+def _coverage_badge_parts(coverage_xml: Path) -> tuple[str, str, str]:
     if not coverage_xml.is_file():
-        return "unknown", "#9f9f9f"
+        return "coverage", "unknown", "#9f9f9f"
 
     try:
         root = ET.parse(coverage_xml).getroot()
         percentage = round(float(root.attrib["line-rate"]) * 100)
     except (ET.ParseError, KeyError, TypeError, ValueError):
-        return "unknown", "#9f9f9f"
+        return "coverage", "unknown", "#9f9f9f"
 
     if percentage >= 90:
         color = "#4c1"
@@ -39,7 +46,19 @@ def _coverage_label_and_color(coverage_xml: Path) -> tuple[str, str]:
         color = "#fe7d37"
     else:
         color = "#e05d44"
-    return f"{percentage}%", color
+    return "coverage", f"{percentage}%", color
+
+
+def _version_badge_parts(pyproject_toml: Path) -> tuple[str, str, str]:
+    if not pyproject_toml.is_file():
+        return "version", "unknown", "#9f9f9f"
+
+    try:
+        data = tomllib.loads(pyproject_toml.read_text(encoding="utf-8"))
+        version = str(data["project"]["version"])
+    except (tomllib.TOMLDecodeError, KeyError, TypeError, ValueError):
+        return "version", "unknown", "#9f9f9f"
+    return "version", version, "#007ec6"
 
 
 def _badge_svg(left: str, right: str, color: str) -> str:

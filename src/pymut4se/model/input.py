@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-import pickle
+import pickle  # nosec B403
 from typing import Optional
 
 from sqlalchemy import CheckConstraint, ForeignKey, String, Text
@@ -109,7 +109,7 @@ class FunctionInput(Base):
         if self.type != "serialized":
             msg = "only serialized inputs can be deserialized"
             raise ValueError(msg)
-        value = pickle.loads(base64.b64decode(self.value))  # noqa: S301
+        value = pickle.loads(base64.b64decode(self.value))  # noqa: S301  # nosec B301
         if not isinstance(value, tuple):
             msg = "serialized function input must contain a tuple"
             raise ValueError(msg)

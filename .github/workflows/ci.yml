@@ -25,7 +25,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: uv sync --group check
+        run: uv sync --locked --no-default-groups --group check
 
       - name: Run tests with coverage
         run: >
@@ -36,7 +36,11 @@ jobs:
 
       - name: Generate coverage badge
         if: always()
-        run: python tools/coverage_badge.py coverage.xml .github/badges/coverage.svg
+        run: python tools/coverage_badge.py coverage coverage.xml .github/badges/coverage.svg
+
+      - name: Generate version badge
+        if: always()
+        run: python tools/coverage_badge.py version pyproject.toml .github/badges/version.svg
 
       - name: Upload coverage reports
         if: always()
@@ -46,6 +50,7 @@ jobs:
           path: |
             coverage.xml
             .github/badges/coverage.svg
+            .github/badges/version.svg
 
       - name: Commit coverage badge
         if: >
@@ -54,7 +59,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/badges/coverage.svg
+          git add .github/badges/coverage.svg .github/badges/version.svg
           if ! git diff --cached --quiet; then
             git commit -m "docs: update coverage badge [skip ci]"
             git push

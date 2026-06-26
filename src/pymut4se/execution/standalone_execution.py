@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import tempfile
 import time
 from dataclasses import dataclass
@@ -270,7 +270,7 @@ class StandalonePythonExecution:
                 cwd=workspace,
                 env=self._build_env(workspace, extra_env),
                 check=False,
-            )
+            )  # nosec B603
             success = completed.returncode == 0
             if success:
                 try:
@@ -437,7 +437,7 @@ def _run_test_case(
             cwd=workspace,
             env=_build_subprocess_env(workspace, extra_env),
             check=False,
-        )
+        )  # nosec B603
         return _TestProcessResult(
             success=completed.returncode == 0,
             output=_captured_output(completed.stdout),

@@ -1,7 +1,7 @@
 # PyMut4SE
 
 [![CI](https://github.com/LaPlei96/PyMut4SE/actions/workflows/ci.yml/badge.svg)](https://github.com/LaPlei96/PyMut4SE/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](.github/badges/version.svg)
 ![Coverage](.github/badges/coverage.svg)
 
 PyMut4SE explores Python projects into a SQLAlchemy object graph, generates
