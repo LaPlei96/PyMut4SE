@@ -25,7 +25,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install dependencies
-        run: uv sync --locked --no-default-groups --group check
+        run: uv sync --no-default-groups --group check
 
       - name: Run tests with coverage
         run: >
