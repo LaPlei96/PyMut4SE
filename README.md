@@ -33,9 +33,8 @@ uv run ty check
 ## Start here
 
 The [getting-started guide](docs/getting-started.md) walks through the complete
-flow: explore and persist a project, choose a code chunk, generate mutants,
-prepare its virtual environment, execute inputs and related tests, and save the
-results.
+high-level flow: discover a project, choose what to mutate, run related tests,
+calculate a mutation score, and save the results.
 
 Reference documentation:
 

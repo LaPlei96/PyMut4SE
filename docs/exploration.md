@@ -1,100 +1,157 @@
-# Project exploration
+# Project Exploration
 
-The exploration package parses Python source with `ast` and returns a connected
-SQLAlchemy object graph. It does not write to a database by itself.
+Exploration turns Python source into a connected SQLAlchemy object graph. It
+does not write anything to a database by itself.
 
-## Python API
+Use the high-level API for normal workflows:
+
+```python
+from pymut4se.api import discover
+
+workspace = discover("path/to/project")
+print(workspace.statistics())
+```
+
+Use the lower-level exploration API when you want direct access to the raw
+`ExplorationResult`:
 
 ```python
 from pymut4se.exploration import explore_path
 
-result = explore_path("src")
-project = result.project
+result = explore_path("path/to/project")
 
-print(project.module_count)
-for module in project.modules:
-    print(module.name, len(module.code_chunks))
+print(result.project.name)
+print(len(result.modules))
+print(len(result.code_chunks))
+print(len(result.test_cases))
 ```
 
-`ExplorationResult` also exposes `packages`, `modules`, `code_chunks`,
-`test_suites`, and `test_cases`. These lists contain the same object instances as
-the corresponding `Project` relationships.
+## What Gets Discovered
 
-To persist the complete result:
+Exploration finds:
+
+- packages, modules, and function-sized code chunks;
+- synchronous functions, asynchronous functions, methods, and nested functions;
+- pytest suites and test functions;
+- likely links from tests to production modules and chunks;
+- dependency manifests such as `requirements.txt` and `pyproject.toml`.
+
+`ExplorationResult` exposes the same object instances through convenient lists:
 
 ```python
+result.project
+result.packages
+result.modules
+result.code_chunks
+result.test_suites
+result.test_cases
+```
+
+## Accepted Paths
+
+You can explore:
+
+| Input | Behavior |
+| --- | --- |
+| Python file | Explore one standalone module. |
+| Source directory | Explore Python files recursively. |
+| Project root | Explore source and tests recursively. |
+| Directory named `src` | Also check the parent for sibling `test/` and `tests/` directories. |
+
+Traversal skips common generated or third-party directories, including `.venv`,
+`venv`, `env`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`,
+`.tox`, `.nox`, `.git`, `node_modules`, `build`, and `dist`.
+
+## Source Chunks
+
+Production modules exclude test paths and `__init__.py`. Function chunks keep
+qualified names, for example:
+
+```text
+Service.execute.normalize
+```
+
+When a function has decorators, the chunk starts at the first decorator. That
+lets mutation and module rebuilding preserve, replace, or remove decorators
+correctly.
+
+## Test Discovery
+
+Test files follow common pytest conventions:
+
+- files in a `test` or `tests` directory;
+- files named `test_*.py`;
+- files named `*_test.py`.
+
+Test target inference uses imports, aliases, calls, test names, and module
+names. The result is a set of `TestTarget` records with evidence and confidence.
+
+| Evidence | Meaning |
+| --- | --- |
+| `direct_call` | A directly imported function is called. |
+| `qualified_call` | A function is called through a module or import alias. |
+| `import` | A module is resolved, but no precise chunk is identified. |
+| `name_match` | The test/function naming convention matches. |
+| `manual` | A caller explicitly created the association. |
+| `coverage` | Reserved for runtime coverage integration. |
+
+The current explorer emits `direct_call`, `qualified_call`, `import`, and
+`name_match`. Inference is deliberately heuristic. A test with no inferred
+targets is still valid; it simply has no `TestTarget` rows.
+
+To inspect inferred links:
+
+```python
+for chunk in result.code_chunks:
+    tests = chunk.related_test_cases
+    if tests:
+        print(chunk.function_name, [test.name for test in tests])
+```
+
+## Requirements
+
+Exploration searches upward from the explored path for the nearest
+`requirements.txt` or `pyproject.toml`. It stores:
+
+- the manifest path;
+- the raw manifest content;
+- normalized dependency strings as `Requirement` rows.
+
+Use this when an installer needs plain strings:
+
+```python
+requirements = result.project.get_requirement_strings()
+```
+
+## Persisting The Result
+
+Add the project root to a SQLAlchemy session. The related graph is reachable
+from it:
+
+```python
+from sqlalchemy.orm import Session
+
 with Session(engine) as session:
     session.add(result.project)
     session.commit()
 ```
 
-## Accepted paths
+For most workflows, `workspace.save(session)` from the high-level API is more
+convenient because it also includes generated mutants and execution results.
 
-- A Python file explores that single standalone module.
-- A source directory explores Python files recursively.
-- A project root explores its source and tests recursively.
-- A directory named `src` also searches its parent for sibling `test/` and
-  `tests/` directories and root-level `test_*.py` or `*_test.py` files.
+## Command Line
 
-Directory traversal prunes virtual environments, caches, VCS metadata,
-third-party JavaScript packages, and build output. The exclusions include
-`.venv`, `venv`, `env`, `__pycache__`, `.pytest_cache`, `.mypy_cache`,
-`.ruff_cache`, `.tox`, `.nox`, `.git`, `node_modules`, `build`, and `dist`.
-
-## Discovery behavior
-
-Packages are directories containing `__init__.py`. Package and suite hierarchies
-are represented with self-referential SQLAlchemy relationships.
-
-Production modules exclude test paths and `__init__.py`. Function chunks are
-created for synchronous functions, asynchronous functions, methods, and nested
-functions. Their names retain qualification, such as
-`Service.execute.normalize`. When a function is decorated, its chunk starts at
-the first decorator so mutations can preserve, replace, or remove decorators
-while rebuilding the complete module.
-
-Test files follow common conventions: a `test` or `tests` directory, a
-`test_*.py` filename, or a `*_test.py` filename. Test target inference uses
-imports, called names, aliases, test names, and module names. Each inferred link
-is stored as a `TestTarget` with its evidence, confidence, and call line:
-
-| Evidence | Typical confidence | Meaning |
-| --- | ---: | --- |
-| `direct_call` | `0.98` | A directly imported function is called. |
-| `qualified_call` | `0.95` | A function is called through a module or import alias. |
-| `import` | `0.65` | A module is resolved but no precise chunk is identified. |
-| `name_match` | `0.40` | Only the test/function naming convention matches. |
-| `manual` | user supplied | A caller explicitly confirms a target. |
-| `coverage` | collector supplied | Runtime execution confirms a target. |
-
-The current explorer emits the first four categories. `manual` is available to
-callers and `coverage` is reserved for runtime integration. Inference remains
-heuristic: unresolved tests are valid and simply have no target associations.
-
-See [Querying tests and production targets](models.md#querying-tests-and-production-targets)
-for relationship navigation and SQLAlchemy queries in both directions between
-test cases, test suites, modules, and code chunks.
-
-The nearest `requirements.txt` or `pyproject.toml` is searched for by walking up
-from the explored path. Its path and raw content are preserved on the `Project`.
-Standard, optional, and PEP 735-style dependencies are flattened, deduplicated,
-and stored as related `Requirement` rows. Use
-`project.get_requirement_strings()` when an installer needs a plain string list
-because the original manifest is unavailable.
-
-## Command line
-
-Run exploration without persistence and print a summary:
+Print an exploration summary without persistence:
 
 ```bash
-python -m pymut4se.exploration src
+python -m pymut4se.exploration path/to/project
 ```
 
-The command reports the project ID and entity counts. Use the Python API when the
-graph should be inspected further or stored in a database.
+Use the Python API when you want to inspect or save the graph.
 
 ## Errors
 
-- A missing path raises `FileNotFoundError`.
+- Missing paths raise `FileNotFoundError`.
 - A single input file without a `.py` suffix raises `ValueError`.
-- Invalid Python syntax raises `SyntaxError` with the discovered file as context.
+- Invalid Python syntax raises `SyntaxError` with the file path as context.
+

@@ -75,7 +75,7 @@ def test_relational_mutation_handles_each_operator_in_a_chained_comparison() -> 
         "In",
         "NotIn",
     }
-    _assert_valid_mutants(mutants, "comparison")
+    _assert_valid_mutants(mutants, "relational")
 
 
 def test_type_cast_mutation_covers_parameters_without_mutating_nested_functions() -> None:
@@ -154,7 +154,7 @@ def test_completed_operators_integrate_with_degree_limited_generation() -> None:
     assert len(mutants) == 28
     assert {mutant.mutation_type for mutant in mutants} == {
         "arithmetic",
-        "comparison",
+        "relational",
         "cast_type",
         "if_not_null",
     }

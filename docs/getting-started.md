@@ -1,32 +1,13 @@
-# Getting started
+# Getting Started
 
-This guide follows one project from source discovery to persisted mutation and
-execution results. It uses SQLite for storage, but the models work with any
-SQLAlchemy-supported database.
+This guide gets you from a Python project to generated mutants, related pytest
+execution, a mutation score, and persisted results.
 
-For the shortest route through this workflow, use the
-[high-level API](api.md):
+Most users should start with the high-level API. It keeps the discovered
+SQLAlchemy objects available, but handles the usual coordination work for
+exploration, mutation, execution, caching, and saving.
 
-```python
-from pymut4se.api import discover
-
-workspace = discover("path/to/target-project")
-print(workspace.statistics())
-
-chunks = workspace.find_chunks("function_to_mutate")
-mutants = workspace.mutate(
-    chunks,
-    operators=["arithmetic", "relational", "logical-connector"],
-)
-print(workspace.mutant_statistics())
-
-workspace.run_tests(mutants, parallel=True, max_workers=4)
-```
-
-The remaining sections show the underlying exploration, model, mutation, and
-execution APIs for users who need direct transaction and object-graph control.
-
-## 1. Install PyMut4SE
+## 1. Install
 
 PyMut4SE requires Python 3.13 or newer. From this repository:
 
@@ -34,243 +15,223 @@ PyMut4SE requires Python 3.13 or newer. From this repository:
 uv sync
 ```
 
-The project being mutated can have its own dependencies. PyMut4SE installs
-those later into a reusable virtual environment; they do not need to be added
-to PyMut4SE itself.
+The target project can have its own dependencies. PyMut4SE installs those into
+a reusable environment for that project when tests or inputs are executed.
 
-## 2. Explore and persist a project
+## 2. Discover A Project
 
-Pass a Python file, a `src` directory, or a project root to `explore_path`:
+Pass a Python file, a `src` directory, or a project root:
 
 ```python
-from pathlib import Path
+from pymut4se.api import discover
 
+workspace = discover("path/to/target-project")
+
+print(workspace)
+print(workspace.statistics())
+```
+
+Discovery finds packages, modules, function-sized code chunks, common
+dependency manifests, and pytest cases. It also infers which tests appear to
+exercise each code chunk.
+
+Useful first checks:
+
+```python
+workspace.packages
+workspace.modules
+workspace.chunks
+
+workspace.find_modules("core")
+workspace.find_chunks("normalize")
+```
+
+If you explored a `src` directory, PyMut4SE also checks sibling `test/` and
+`tests/` directories in the parent project.
+
+## 3. Choose What To Mutate
+
+You can mutate packages, modules, or individual chunks. Start small:
+
+```python
+chunks = workspace.find_chunks("function_to_mutate")
+
+mutants = workspace.mutate(
+    chunks,
+    operators=["arithmetic", "relational", "logical-connector"],
+    max_degree=1,
+)
+
+print(workspace.mutant_statistics())
+```
+
+A single operator name also works:
+
+```python
+mutants = workspace.mutate(chunks, "arithmetic")
+```
+
+Use `"all"` when you want the full implemented operator catalogue:
+
+```python
+mutants = workspace.mutate(chunks, "all", max_degree=1)
+```
+
+Higher values of `max_degree` generate higher-order mutants, but the search
+space can grow quickly. Begin with `max_degree=1` and a focused target.
+
+## 4. Mutate Only Tested Code
+
+For normal mutation testing, you often want to skip chunks with no inferred
+tests:
+
+```python
+tested_chunks = workspace.chunks_with_tests()
+
+mutants = workspace.mutate_chunks_with_tests(
+    tested_chunks,
+    operators=["arithmetic", "relational"],
+)
+```
+
+You can inspect the related tests before executing anything:
+
+```python
+for chunk in tested_chunks:
+    print(chunk.function_name)
+    for test_case in workspace.tests_for(chunk):
+        print("  ", test_case.name)
+```
+
+Test targeting is heuristic. If a project uses dynamic imports, fixtures, or
+indirect calls, review these links before treating the score as final.
+
+## 5. Run Related Tests
+
+The workspace prepares and reuses the target project environment automatically:
+
+```python
+outputs = workspace.run_tests_for_chunks_with_tests(
+    mutants,
+    parallel=True,
+    max_workers=4,
+    timeout_seconds=20,
+)
+```
+
+`run_tests_for_chunks_with_tests()` only runs chunks with inferred related tests
+and never falls back to the full test suite.
+
+If you want PyMut4SE to run the full discovered test suite when a chunk has no
+related tests, use `run_tests()` with fallback enabled:
+
+```python
+outputs = workspace.run_tests(
+    mutants,
+    fallback_to_full_suite=True,
+)
+```
+
+Execution installs dependencies and runs arbitrary target project code. Only
+use projects you trust.
+
+## 6. Check The Mutation Score
+
+After test execution:
+
+```python
+score = workspace.mutation_score(mutants)
+
+print(score)
+print(score.as_dict())
+```
+
+The score is calculated as:
+
+```text
+killed / (killed + survived)
+```
+
+Untested, incomplete, and infrastructure-error mutants are reported separately
+and excluded from the denominator.
+
+## 7. Save Results
+
+The high-level API does not create or own your database. Give it a SQLAlchemy
+session when you want to persist the accumulated graph:
+
+```python
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from pymut4se.exploration import explore_path
 from pymut4se.model import Base
-
-project_path = Path("path/to/target-project").resolve()
-result = explore_path(project_path)
 
 engine = create_engine("sqlite:///pymut4se.db")
 Base.metadata.create_all(engine)
 
-session = Session(engine)
-session.add(result.project)
-session.commit()
-
-print(f"modules: {result.project.module_count}")
-print(f"original chunks: {len(result.code_chunks)}")
-print(f"tests: {result.project.test_case_count}")
-print(f"requirements: {result.project.get_requirement_strings()}")
+with Session(engine) as session:
+    workspace.save(session, commit=True)
 ```
 
-Exploration builds one connected ORM graph. It discovers functions and methods
-as degree-zero `CodeChunk` objects, finds common dependency manifests, and
-infers links from pytest cases to production modules and chunks. Virtual
-environments, caches, version-control metadata, and build output are skipped.
-
-When exploring `src`, PyMut4SE also checks the parent project for sibling
-`test/` and `tests/` directories. Test targeting is heuristic, so inspect
-`chunk.related_test_cases` before relying on it for mutation verdicts.
-
-## 3. Select a chunk and its operators
-
-Choose a degree-zero chunk, then generate first-order mutants with a focused
-operator set:
+If you plan to keep using the same `workspace`, `chunk`, or `mutant` variables
+after committing, create sessions with `expire_on_commit=False`:
 
 ```python
-from pymut4se.mutation import generate_mutants
-from pymut4se.mutation.generic import (
-    ArithmeticMutation,
-    LogicalConnectorMutation,
-    RelationalMutation,
-    UnaryMutation,
+from sqlalchemy.orm import sessionmaker
+
+SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+
+with SessionLocal() as session:
+    workspace.save(session)
+    session.commit()
+```
+
+Otherwise, the simplest pattern is to save at the end of the workflow.
+
+## Common Recipes
+
+Run the shortest useful mutation-testing flow:
+
+```python
+from pymut4se.api import discover
+
+workspace = discover("path/to/target-project")
+mutants = workspace.mutate_chunks_with_tests(workspace.chunks, "all")
+workspace.run_tests_for_chunks_with_tests(mutants, max_workers=4)
+print(workspace.mutation_score(mutants))
+```
+
+Focus on one module:
+
+```python
+module = workspace.find_modules("calculator.core")[0]
+mutants = workspace.mutate_chunks_with_tests(module, ["arithmetic", "relational"])
+workspace.run_tests_for_chunks_with_tests(mutants)
+```
+
+Run quietly inside another tool:
+
+```python
+mutants = workspace.mutate_chunks_with_tests(
+    workspace.chunks,
+    "all",
+    show_progress=False,
 )
-
-original = next(
-    chunk
-    for chunk in result.code_chunks
-    if chunk.function_name == "function_to_mutate"
+outputs = workspace.run_tests_for_chunks_with_tests(
+    mutants,
+    show_progress=False,
 )
-
-mutants = generate_mutants(
-    target=original,
-    mutation_operators=[
-        ArithmeticMutation,
-        LogicalConnectorMutation,
-        RelationalMutation,
-        UnaryMutation,
-    ],
-    max_degree=1,
-)
-session.add_all(mutants)
-
-print(f"generated {len(mutants)} mutants")
-for mutant in mutants:
-    print(mutant.mutation_operator, mutant.line_changed)
 ```
 
-Operator classes and instances are both accepted. Change `max_degree` to `2`
-or more for higher-order mutants, but expect the search space to grow quickly.
-Each mutant is attached to the same project and module, its immediate `parent`,
-and its degree-zero `original` ancestor.
+## Where To Go Next
 
-See the [operator catalogue](operators.md) before choosing a broader set. To
-preview the complete mutated module without writing it to disk:
-
-```python
-from pymut4se.mutation import build_mutant
-
-module_source = build_mutant(mutants[0])
-print(module_source)
-```
-
-## 4. Optionally add predetermined inputs
-
-Function inputs belong to the original chunk and automatically apply to all of
-its mutants. A text input can be JSON, a Python literal collection, or a call
-expression containing literal arguments:
-
-```python
-from pymut4se.model import FunctionInput
-
-function_input = FunctionInput.from_text_representation(
-    "function_to_mutate(3, 5)",
-    original_chunk=original,
-)
-session.add(function_input)
-```
-
-For trusted Python values that are awkward to express as text, use the
-serialized form:
-
-```python
-function_input = FunctionInput.from_value(
-    (3, 5),
-    "function_to_mutate(3, 5)",
-    original_chunk=original,
-)
-session.add(function_input)
-```
-
-Serialized values use `pickle`; never load serialized inputs from an untrusted
-source. Skip this step when related pytest cases are the only execution oracle.
-
-## 5. Prepare the reusable environment
-
-Create one virtual environment for the explored project:
-
-```python
-from pymut4se.execution import PythonExecutionEnvironment
-
-environment = PythonExecutionEnvironment.for_project(result.project)
-environment.prepare()
-```
-
-The default location is `.pymut4se/venvs/<project_id>` under the explored path.
-Preparation installs the preserved `requirements.txt`, or falls back to the
-normalized requirements stored on the project. It also installs pytest as the
-test runner. A dependency fingerprint prevents unchanged requirements from
-being installed again.
-
-Preparing an environment installs and later executes arbitrary project code.
-Only use projects you trust.
-
-## 6. Execute inputs and related tests
-
-The standalone executor substitutes a chunk into a temporary copy of its full
-module and runs it with the prepared environment:
-
-```python
-from pymut4se.execution import StandalonePythonExecution
-
-executor = StandalonePythonExecution(timeout_seconds=5)
-
-original_input_outputs = executor.execute_all(original, environment)
-mutant_input_outputs = [
-    output
-    for mutant in mutants
-    for output in executor.execute_all(mutant, environment)
-]
-
-original_test_outputs = executor.execute_related_tests(original, environment)
-mutant_test_outputs = [
-    output
-    for mutant in mutants
-    for output in executor.execute_related_tests(mutant, environment)
-]
-```
-
-`execute_all` uses every input applicable to the chunk. If there are no inputs,
-it returns an empty list. `execute_related_tests` behaves the same way when no
-test association was discovered.
-
-Both methods reuse one module build per call. They also return an existing ORM
-output instead of rerunning the same chunk/input/environment or
-chunk/test/environment combination.
-
-## 7. Run many mutant test sets in parallel
-
-For several mutants, parallel execution avoids serially waiting on independent
-pytest subprocesses:
-
-```python
-from pymut4se.execution import ParallelExecution
-
-parallel = ParallelExecution(max_workers=4, timeout_seconds=5)
-mutant_test_outputs = parallel.execute_related_tests(mutants, environment)
-```
-
-Each worker receives an isolated project copy while sharing the prepared venv
-read-only. ORM access and output construction remain on the calling thread, so
-do not pass SQLAlchemy sessions into workers. Tune `max_workers` to the target
-tests' CPU and memory cost rather than automatically using every core.
-
-## 8. Persist the generated and executed graph
-
-Add outputs explicitly, then commit the project graph and results:
-
-```python
-all_outputs = [
-    *original_input_outputs,
-    *mutant_input_outputs,
-    *original_test_outputs,
-    *mutant_test_outputs,
-]
-
-session.add_all(all_outputs)
-session.commit()
-session.close()
-```
-
-In a long-running application, keep ORM objects attached to one open session
-while traversing lazy relationships, generating mutants, and resolving cached
-outputs. When reopening a stored project in a later process, load the required
-module, chunk, input, and test relationships before detaching it.
-
-The result graph can now be navigated directly:
-
-```python
-for mutant in original.derived_chunks:
-    input_results = mutant.execution_outputs
-    test_results = mutant.test_execution_outputs
-    killed_by = [result.test_case.name for result in test_results if not result.success]
-    print(mutant.chunk_id, len(input_results), killed_by)
-```
-
-A failed related test is evidence that the mutant differs observably from the
-tested original, but PyMut4SE currently stores raw outcomes rather than a final
-mutation score or report.
-
-## Where to go next
-
-- [Exploration](exploration.md) explains path handling and test inference.
-- [Models](models.md) documents relationships and SQLAlchemy queries.
-- [Mutation generation](mutation.md) covers higher-order generation and custom
+- [High-level API](api.md): workspace methods, search helpers, execution, score,
+  and persistence.
+- [Operators](operators.md): every implemented mutation operator.
+- [Exploration](exploration.md): path handling and test inference.
+- [Execution](execution.md): environments, subprocess behavior, caching, and
+  parallelism.
+- [Models](models.md): SQLAlchemy relationships and persistence details.
+- [Mutation generation](mutation.md): lower-level generation and custom
   operators.
-- [Operators](operators.md) lists every implemented mutation operator.
-- [Execution](execution.md) details caching, environments, subprocess behavior,
-  and parallelism.
+

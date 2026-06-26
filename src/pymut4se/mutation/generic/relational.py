@@ -58,7 +58,7 @@ class RelationalMutation(PythonASTMutation):
             original=code,
             parsed_code=parsed_code,
             mutation_points=mutation_point,
-            mutation_type="comparison",
+            mutation_type="relational",
             mutation_operator=lambda point: type(point.operator).__name__,
             apply_mutation=_apply_relation_mutation,
         )

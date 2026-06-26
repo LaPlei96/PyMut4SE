@@ -86,6 +86,35 @@ def test_lists_resolves_and_applies_friendly_operator_names(temp_path: Path, cap
         workspace.mutate(module, ["does-not-exist"])
 
 
+def test_can_mutate_only_chunks_with_related_tests(temp_path: Path) -> None:
+    source = temp_path / "operations.py"
+    source.write_text(
+        "def add(left, right):\n"
+        "    return left + right\n\n"
+        "def subtract(left, right):\n"
+        "    return left - right\n",
+        encoding="utf-8",
+    )
+    tests = temp_path / "tests"
+    tests.mkdir()
+    (tests / "test_operations.py").write_text(
+        "from operations import add\n\n\n"
+        "def test_add():\n"
+        "    assert add(1, 2) == 3\n",
+        encoding="utf-8",
+    )
+    workspace = discover(temp_path)
+
+    tested_chunks = workspace.chunks_with_tests()
+    mutants = workspace.mutate_chunks_with_tests(workspace.chunks, "arithmetic", show_progress=False)
+
+    assert [chunk.function_name for chunk in tested_chunks] == ["add"]
+    assert mutants
+    assert {mutant.original.function_name for mutant in mutants} == {"add"}
+    assert workspace.find_mutants("subtract") == []
+    assert workspace.chunks_with_tests(include_mutants=True) == [*tested_chunks, *mutants]
+
+
 def test_adds_inputs_shows_tests_and_persists_the_workspace(temp_path: Path) -> None:
     workspace = _discover_demo(temp_path)
     original = workspace.chunks[0]
@@ -160,6 +189,37 @@ def test_execution_helpers_default_to_generated_mutants(temp_path: Path, monkeyp
     progress_output = capsys.readouterr().out
     assert f"Executing inputs: {len(mutants)}/{len(mutants)}" in progress_output
     assert f"Executing tests: {len(mutants)}/{len(mutants)}" in progress_output
+
+
+def test_can_execute_tests_for_only_chunks_with_related_tests(temp_path: Path, monkeypatch) -> None:
+    workspace = _discover_demo(temp_path)
+    tested = workspace.chunks[0]
+    untested = CodeChunk(
+        "def noop():\n    return None\n",
+        tested.module_id,
+        "noop",
+        "function",
+        4,
+        5,
+        project_id=workspace.project.project_id,
+    )
+    tested.module.code_chunks.append(untested)
+    workspace.project.code_chunks.append(untested)
+    workspace.exploration.code_chunks.append(untested)
+    calls = []
+
+    def fake_run_tests(chunks, **kwargs):
+        calls.append((chunks, kwargs))
+        return []
+
+    monkeypatch.setattr(workspace, "run_tests", fake_run_tests)
+
+    assert workspace.run_tests_for_chunks_with_tests([tested, untested], parallel=False) == []
+
+    selected, kwargs = calls[0]
+    assert selected == [tested]
+    assert kwargs["parallel"] is False
+    assert kwargs["fallback_to_full_suite"] is False
 
 
 def test_mutation_progress_is_cumulative_across_chunks(temp_path: Path, capsys) -> None:

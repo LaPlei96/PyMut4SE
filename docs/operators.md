@@ -1,9 +1,47 @@
-# Generic mutation operators
+# Generic Mutation Operators
 
-The implemented generic operators are exported from
-`pymut4se.mutation.generic`:
+This page is the operator catalogue. Use it when you need to choose mutation
+operators or understand the metadata generated for each mutant.
 
-## Operator summary
+For the high-level API, pass friendly names:
+
+```python
+mutants = workspace.mutate_chunks_with_tests(
+    workspace.chunks,
+    operators=["arithmetic", "relational", "logical-connector"],
+)
+```
+
+Use `"all"` to apply every implemented operator:
+
+```python
+mutants = workspace.mutate_chunks_with_tests(workspace.chunks, "all")
+```
+
+For lower-level workflows, import operator classes from
+`pymut4se.mutation.generic` and pass them to `generate_mutants()`.
+
+## Choosing Operators
+
+Start small. A focused set is easier to interpret than a large first run:
+
+| Goal | Good starting operators |
+| --- | --- |
+| Numeric calculations | `arithmetic`, `constant-replacement`, `unary` |
+| Branch and boundary behavior | `relational`, `logical-connector`, `boolean-replacement` |
+| Missing or skipped statements | `delete-return`, `delete-if-statement`, `delete-assignment`, `return-pass` |
+| Call-site mistakes | `swap-arguments`, `optional-parameter-caller` |
+| Function signature/default behavior | `optional-parameter-callee`, `type-cast`, `add-if-not-null` |
+
+Every mutant records:
+
+| Field | Meaning |
+| --- | --- |
+| `mutation_type` | Broad operator family, such as `arithmetic`. |
+| `mutation_operator` | Concrete replacement, such as `Sub` or `swap:0:1`. |
+| `line_changed` / `column_changed` | One-based position in the original source. |
+
+## Operator Summary
 
 | Operator | Intent | Documentation |
 | --- | --- | --- |
@@ -25,6 +63,8 @@ The implemented generic operators are exported from
 | `SwapArgumentsMutation` | Swap positional arguments at call sites. | [Swap-arguments mutation](#swap-arguments-mutation) |
 | `TypeCastMutation` | Cast a parameter before it is used. | [Type-cast mutation](#type-cast-mutation) |
 | `UnaryMutation` | Replace negation, sign, and bitwise inversion operators. | [Unary mutation](#unary-mutation) |
+
+Lower-level imports:
 
 ```python
 from pymut4se.mutation.generic import (
@@ -106,7 +146,7 @@ chained comparison. Supported operators are:
 ```
 
 One comparison operator produces nine mutants. A two-part chained comparison
-produces eighteen. Metadata uses `mutation_type="comparison"` and the replacement
+produces eighteen. Metadata uses `mutation_type="relational"` and the replacement
 AST name, such as `GtE`, as `mutation_operator`.
 
 ## Constant-replacement mutation

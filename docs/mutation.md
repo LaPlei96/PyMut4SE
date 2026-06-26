@@ -1,95 +1,112 @@
-# Mutation generation
+# Mutation Generation
 
-Mutation generation operates directly on the SQLAlchemy object graph. A target
-can be a `CodeChunk`, `Module`, or `Package`; callers do not pass separate ID or
-entity collections.
+Most users generate mutants through the high-level workspace:
+
+```python
+mutants = workspace.mutate_chunks_with_tests(workspace.chunks, "all")
+```
+
+This page describes the lower-level mutation API for custom workflows,
+operator development, and rendering complete mutated modules.
+
+## Generate Mutants Directly
 
 ```python
 from pymut4se.mutation import generate_mutants
-from my_operators import MyMutationOperator
+from pymut4se.mutation.generic import ArithmeticMutation, RelationalMutation
 
 mutants = generate_mutants(
     target=module,
-    mutation_operators=[MyMutationOperator],
-    max_degree=2,
+    mutation_operators=[ArithmeticMutation, RelationalMutation],
+    max_degree=1,
 )
 ```
 
-Operator instances and no-argument operator classes are both accepted. A module
-target mutates its degree-zero `code_chunks`. A package target also traverses
-child packages and their modules. Existing mutants are not treated as independent
-sources; higher-order mutants are generated from the new chain up to
-`max_degree`.
+Targets can be:
 
-Each generated chunk is connected automatically:
+| Target | Behavior |
+| --- | --- |
+| `CodeChunk` | Mutate that chunk's degree-zero original. |
+| `Module` | Mutate all degree-zero chunks in the module. |
+| `Package` | Mutate chunks in the package, child packages, and their modules. |
 
-- `mutant.parent` points to the chunk from which it was generated.
-- `mutant.original` points directly to the degree-zero ancestor; it is `None` on
-  degree-zero chunks themselves.
-- `mutant.module` points to the same module.
-- `mutant.project` points to the same project when available.
-- Reverse collections such as `parent.children`, `module.code_chunks`, and
-  `project.code_chunks` are updated by SQLAlchemy.
+Operator classes and operator instances are both accepted.
 
-As a result, an already tracked project graph can persist generated mutants with
-the normal session commit:
+## Higher-Order Mutants
+
+`max_degree=1` creates first-order mutants. Larger values continue mutating the
+new chain:
+
+```python
+mutants = generate_mutants(module, [ArithmeticMutation], max_degree=2)
+```
+
+Higher-order generation can grow quickly. PyMut4SE deduplicates normalized AST
+states so inverse operators do not recreate the same program under different
+formatting.
+
+## Generated Relationships
+
+Each generated mutant is a `CodeChunk` connected to the existing graph:
+
+| Relationship | Meaning |
+| --- | --- |
+| `mutant.parent` | The chunk this mutant was generated from. |
+| `mutant.children` | Later mutants generated from this mutant. |
+| `mutant.original` | The degree-zero source chunk. |
+| `mutant.module` | The same module as the original. |
+| `mutant.project` | The same project, when available. |
+
+Degree-zero chunks have `original=None`.
+
+When the project was already persisted, add newly generated mutants before
+committing:
 
 ```python
 with Session(engine) as session:
     project = session.get(Project, project_id)
-    mutants = generate_mutants(project.modules[0], [MyMutationOperator], 2)
+    module = project.modules[0]
+
+    mutants = generate_mutants(module, [ArithmeticMutation], max_degree=1)
+
     session.add_all(mutants)
     session.commit()
 ```
 
-When the project was already persisted, add newly generated mutants explicitly.
-Relationship assignment updates the in-memory graph, but SQLAlchemy does not
-automatically add a transient child merely because it was assigned from the
-child side of an existing relationship.
+Keep persisted targets attached to an open session while generating mutants, or
+preload the package, module, and chunk relationships you need.
 
-Module and package relationships may lazy-load. Keep persistent targets attached
-to an open session while generating mutants, or load the relevant package,
-module, and chunk relationships beforehand.
+## Build Complete Mutated Source
 
-Higher-order generation deduplicates normalized AST states rather than raw source
-text. This prevents inverse operators from recreating the original program under
-different `ast.unparse` formatting and keeps rejected candidates out of ORM
-relationship collections.
-
-## Building complete mutant module source
-
-`build_mutant` renders the complete module source for one `CodeChunk` by replacing
-the corresponding original function range:
+`build_mutant()` renders the full module source for one original or mutant
+chunk:
 
 ```python
 from pymut4se.mutation import build_mutant
 
-module_source = build_mutant(mutant_chunk)
+module_source = build_mutant(mutant)
 ```
 
-The function returns a string and does not modify `Module.source`. The supplied
-chunk must be attached to a `Module` whose `source` is available.
+It returns a string and does not modify `Module.source`.
 
 For higher-order mutants, replacement boundaries come from the degree-zero
-ancestor rather than the latest parent's changed `end_line`. This keeps code after
-the original function intact when a mutation adds or removes lines.
+ancestor. This keeps code after the original function intact when mutations add
+or remove lines.
 
-AST unparsing removes a method's surrounding class indentation. `build_mutant`
-restores indentation from the original module line before substitution. It also
-preserves the module's `LF`, `CRLF`, or `CR` newline style and whether the replaced
-source range ended with a newline.
+`build_mutant()` also restores method indentation and preserves the module's
+newline style.
 
-Persistent chunks may lazy-load `parent` and `module`; keep them attached to an
-open session or pre-load those relationships before rendering.
+## Implement An Operator
 
-## Implementing an operator
+Operators implement the `Mutation` interface. AST-based operators usually
+inherit from `PythonASTMutation`, which handles parsing dedented function and
+method chunks.
 
-Operators implement the `Mutation` interface. AST-based operators can inherit
-from `PythonASTMutation`, which parses dedented function and method chunks.
-
-Use `build_mutated_code_chunk` to preserve source identity and mutation metadata:
+Use `build_mutated_code_chunk()` to create correctly linked mutants:
 
 ```python
+from pymut4se.mutation import build_mutated_code_chunk
+
 return build_mutated_code_chunk(
     original=chunk,
     mutated_code=new_source,
@@ -100,10 +117,13 @@ return build_mutated_code_chunk(
 )
 ```
 
-Relative line numbers are converted to project source lines. Columns are stored
-as one-based positions. The helper increments the mutation degree, links the new
-chunk to both its immediate parent and degree-zero original, and connects it to
-the surrounding ORM graph.
+The helper:
 
-See [Generic mutation operators](operators.md) for the implemented operator set,
-expected mutant counts, metadata, and limitations.
+- increments the mutation degree;
+- links the immediate parent and degree-zero original;
+- connects the mutant to the surrounding module and project;
+- converts relative line and column positions to project source locations.
+
+See [Generic mutation operators](operators.md) for the implemented operator set
+and expected metadata.
+

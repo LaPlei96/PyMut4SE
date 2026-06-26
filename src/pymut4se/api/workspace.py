@@ -115,6 +115,25 @@ class MutationWorkspace:
             if _matches(query, chunk.chunk_id, chunk.function_name, f"{chunk.module.name}:{chunk.function_name}")
         ]
 
+    def chunks_with_tests(
+        self,
+        targets: Optional[Selectable | Sequence[Selectable]] = None,
+        *,
+        include_mutants: bool = False,
+    ) -> list[CodeChunk]:
+        """Return chunks under the selected targets that have inferred related tests."""
+        selected_targets = self.chunks if targets is None else _as_list(targets)
+        for target in selected_targets:
+            self._validate_target(target)
+        originals = {
+            chunk.chunk_id: chunk for target in selected_targets for chunk in self._original_chunks_for(target)
+        }
+        selected = list(originals.values())
+        if include_mutants:
+            original_ids = set(originals)
+            selected.extend(mutant for mutant in self.mutants if mutant.original_id in original_ids)
+        return [chunk for chunk in selected if chunk.related_test_cases]
+
     def mutate(
         self,
         targets: Selectable | Sequence[Selectable],
@@ -166,6 +185,20 @@ class MutationWorkspace:
         finally:
             progress.finish(len(generated), processed_chunks)
         return generated
+
+    def mutate_chunks_with_tests(
+        self,
+        targets: Optional[Selectable | Sequence[Selectable]],
+        operators: OperatorSelection,
+        *,
+        max_degree: int = 1,
+        show_progress: bool = True,
+    ) -> list[CodeChunk]:
+        """Generate mutants only for selected chunks with inferred related tests."""
+        selected = self.chunks_with_tests(targets)
+        if not selected:
+            return []
+        return self.mutate(selected, operators, max_degree=max_degree, show_progress=show_progress)
 
     def find_mutants(
         self,
@@ -265,7 +298,7 @@ class MutationWorkspace:
         timeout_seconds: float = 2.0,
         extra_env: Optional[dict[str, str]] = None,
         show_progress: bool = True,
-        fallback_to_full_suite: bool = True,
+        fallback_to_full_suite: bool = False,
     ) -> list[TestExecutionOutput]:
         """Run related pytest cases for selected chunks, in parallel by default."""
         selected = self._execution_chunks(chunks)
@@ -303,6 +336,34 @@ class MutationWorkspace:
                 progress.finish()
         self._remember_outputs(self.test_outputs, outputs, "execution_id")
         return outputs
+
+    def run_tests_for_chunks_with_tests(
+        self,
+        chunks: Optional[CodeChunk | Sequence[CodeChunk]] = None,
+        *,
+        include_mutants: Optional[bool] = None,
+        parallel: bool = True,
+        max_workers: Optional[int] = None,
+        timeout_seconds: float = 2.0,
+        extra_env: Optional[dict[str, str]] = None,
+        show_progress: bool = True,
+    ) -> list[TestExecutionOutput]:
+        """Run related pytest cases for chunks that have inferred tests, without full-suite fallback."""
+        if chunks is None:
+            selected = self.chunks_with_tests(include_mutants=bool(self.mutants) if include_mutants is None else include_mutants)
+        else:
+            selected = [chunk for chunk in _as_list(chunks) if self.tests_for(chunk)]
+        if not selected:
+            return []
+        return self.run_tests(
+            selected,
+            parallel=parallel,
+            max_workers=max_workers,
+            timeout_seconds=timeout_seconds,
+            extra_env=extra_env,
+            show_progress=show_progress,
+            fallback_to_full_suite=False,
+        )
 
     def save(self, session: Session, *, commit: bool = False) -> None:
         """Add the complete known workspace state to a caller-owned SQLAlchemy session."""
