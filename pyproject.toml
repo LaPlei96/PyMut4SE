@@ -27,6 +27,7 @@ check = [
     "bandit>=1.9.2",
     "ty>=0.0.8",
     "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
     "ruff>=0.14.10",
 ]
 commit = ["commitizen>=4.11.0","pre-commit>=4.5.1",]
