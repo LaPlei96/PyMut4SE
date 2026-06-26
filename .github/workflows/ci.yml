@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --locked --no-default-groups --group check
+
+      - name: Run tests with coverage
+        run: >
+          uv run pytest
+          --cov=pymut4se
+          --cov-report=term-missing
+          --cov-report=xml
+
+      - name: Build release distributions
+        if: startsWith(github.ref, 'refs/tags/')
+        run: uv build
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+
+      - name: Generate coverage badge
+        if: always()
+        run: python tools/coverage_badge.py coverage coverage.xml .github/badges/coverage.svg
+
+      - name: Generate version badge
+        if: always()
+        run: python tools/coverage_badge.py version pyproject.toml .github/badges/version.svg
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage.xml
+            .github/badges/coverage.svg
+            .github/badges/version.svg
+
+      - name: Commit coverage badge
+        if: >
+          github.event_name == 'push' &&
+          github.ref_name == github.event.repository.default_branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/badges/coverage.svg .github/badges/version.svg
+          if ! git diff --cached --quiet; then
+            git commit -m "docs: update coverage badge [skip ci]"
+            git push
+          fi

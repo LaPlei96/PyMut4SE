@@ -1,48 +1,50 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Optional
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, Float, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, CheckConstraint, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from pymut4se.model.base import Base, generate_id
 
 
-class ExecutionOutput(Base):
-    """The persisted result of running one chunk with one predetermined input."""
+class TestExecutionOutput(Base):
+    """The persisted result of running one related test against one code chunk."""
 
-    __tablename__ = "execution_outputs"
+    __tablename__ = "test_execution_outputs"
     __table_args__ = (
-        CheckConstraint("time_taken >= 0", name="ck_execution_outputs_time_taken"),
+        CheckConstraint("time_taken >= 0", name="ck_test_execution_outputs_time_taken"),
         UniqueConstraint(
             "code_chunk_id",
-            "input_id",
+            "test_id",
             "environment_id",
-            name="uq_execution_outputs_chunk_input_environment",
+            name="uq_test_execution_outputs_chunk_test_environment",
         ),
     )
 
     execution_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     code_chunk_id: Mapped[str] = mapped_column(ForeignKey("code_chunks.chunk_id"), index=True, nullable=False)
-    input_id: Mapped[str] = mapped_column(ForeignKey("function_inputs.input_id"), index=True, nullable=False)
+    test_id: Mapped[str] = mapped_column(ForeignKey("test_cases.test_id"), index=True, nullable=False)
     environment_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     success: Mapped[bool] = mapped_column(Boolean, nullable=False)
     output: Mapped[Any] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    return_code: Mapped[Optional[int]] = mapped_column(Integer)
     time_taken: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
-    code_chunk: Mapped[CodeChunk] = relationship(back_populates="execution_outputs")
-    function_input: Mapped[FunctionInput] = relationship(back_populates="execution_outputs")
+    code_chunk: Mapped[CodeChunk] = relationship(back_populates="test_execution_outputs")
+    test_case: Mapped[TestCase] = relationship(back_populates="execution_outputs")
 
     def __init__(
         self,
         success: bool,
         output: Any,
         code_chunk: CodeChunk,
-        function_input: FunctionInput,
+        test_case: TestCase,
         environment_id: str,
         error_message: str = "",
+        return_code: Optional[int] = None,
         time_taken: float = 0.0,
         execution_id: str = "",
     ) -> None:
@@ -52,8 +54,8 @@ class ExecutionOutput(Base):
         if not environment_id:
             msg = "environment_id must not be empty"
             raise ValueError(msg)
-        if function_input not in code_chunk.applicable_inputs:
-            msg = "function_input must apply to code_chunk"
+        if test_case not in code_chunk.related_test_cases and not _belongs_to_same_project(code_chunk, test_case):
+            msg = "test_case must be related to code_chunk or belong to the same project"
             raise ValueError(msg)
         try:
             normalized_output = json.dumps(output, sort_keys=True, separators=(",", ":"))
@@ -62,21 +64,22 @@ class ExecutionOutput(Base):
             raise ValueError(msg) from error
         if not execution_id:
             identity = (
-                f"{code_chunk.chunk_id}:{function_input.input_id}:{environment_id}:{success}:"
-                f"{normalized_output}:{error_message}:{time_taken}"
+                f"{code_chunk.chunk_id}:{test_case.test_id}:{environment_id}:{success}:"
+                f"{normalized_output}:{error_message}:{return_code}:{time_taken}"
             )
             execution_id = generate_id(identity)
         super().__init__(
             execution_id=execution_id,
             code_chunk_id=code_chunk.chunk_id,
-            input_id=function_input.input_id,
+            test_id=test_case.test_id,
             environment_id=environment_id,
             success=success,
             output=output,
             error_message=error_message,
+            return_code=return_code,
             time_taken=time_taken,
             code_chunk=code_chunk,
-            function_input=function_input,
+            test_case=test_case,
         )
 
     @validates("time_taken")
@@ -88,4 +91,15 @@ class ExecutionOutput(Base):
 
 
 from pymut4se.model.code_chunk import CodeChunk  # noqa: E402
-from pymut4se.model.input import FunctionInput  # noqa: E402
+from pymut4se.model.test import TestCase  # noqa: E402
+
+
+def _belongs_to_same_project(code_chunk: CodeChunk, test_case: TestCase) -> bool:
+    chunk_project = code_chunk.project or (code_chunk.module.project if code_chunk.module is not None else None)
+    test_project = test_case.project
+    if chunk_project is not None and test_project is not None:
+        return chunk_project is test_project or chunk_project.project_id == test_project.project_id
+    chunk_project_id = code_chunk.project_id or (
+        code_chunk.module.project_id if code_chunk.module is not None else None
+    )
+    return chunk_project_id is not None and chunk_project_id == test_case.project_id

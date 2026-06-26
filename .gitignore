@@ -1,0 +1,13 @@
+.pytest_cache/
+__pycache__/
+.coverage
+coverage.xml
+build/
+dist/
+*.egg-info/
+.pymut4se/
+.agents
+.pytest_tmp
+.ruff_cache
+.venv
+.vscode
