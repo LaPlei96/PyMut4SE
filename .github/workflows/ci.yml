@@ -34,6 +34,16 @@ jobs:
           --cov-report=term-missing
           --cov-report=xml
 
+      - name: Build release distributions
+        if: startsWith(github.ref, 'refs/tags/')
+        run: uv build
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+
       - name: Generate coverage badge
         if: always()
         run: python tools/coverage_badge.py coverage coverage.xml .github/badges/coverage.svg
