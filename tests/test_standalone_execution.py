@@ -56,7 +56,7 @@ def test_executes_a_mutant_from_within_its_complete_module(temp_path: Path) -> N
 
 
 def test_executes_text_inputs_and_preserves_function_stdout(temp_path: Path) -> None:
-    source = "def greet(greeting, name):\n    print('called')\n    return f'{greeting}, {name}'\n"
+    source = "def greet(greeting, name):\n    print('called café')\n    return f'{greeting}, {name}'\n"
     (temp_path / "application.py").write_text(source, encoding="utf-8")
     project = Project("demo", ".", absolute_path=temp_path.as_posix())
     module = Module("application", "application.py", source=source)
@@ -73,7 +73,7 @@ def test_executes_text_inputs_and_preserves_function_stdout(temp_path: Path) -> 
     execution = StandalonePythonExecution().execute(chunk, function_input, environment)
 
     assert execution.success
-    assert execution.output == {"result": "Hello, Ada", "stdout": "called"}
+    assert execution.output == {"result": "Hello, Ada", "stdout": "called café"}
 
 
 def test_requires_a_prepared_matching_environment_and_applicable_input(temp_path: Path) -> None:

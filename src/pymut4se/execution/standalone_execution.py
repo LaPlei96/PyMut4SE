@@ -24,6 +24,7 @@ from pymut4se.model import (
 from pymut4se.mutation import build_mutant
 
 _RESULT_MARKER = "__PYMUT4SE_RESULT__"
+_SUBPROCESS_ENCODING = "utf-8"
 
 
 @dataclass(frozen=True)
@@ -265,6 +266,8 @@ class StandalonePythonExecution:
                 [str(environment.python_executable), str(harness_path)],
                 input=payload,
                 text=True,
+                encoding=_SUBPROCESS_ENCODING,
+                errors="replace",
                 capture_output=True,
                 timeout=self.timeout_seconds,
                 cwd=workspace,
@@ -404,6 +407,10 @@ def _build_subprocess_env(
     extra_env: Optional[dict[str, str]],
 ) -> dict[str, str]:
     environment = os.environ.copy()
+    environment.setdefault("NO_COLOR", "1")
+    environment.setdefault("PYTHONIOENCODING", _SUBPROCESS_ENCODING)
+    environment.setdefault("PYTHONUTF8", "1")
+    environment.setdefault("PY_COLORS", "0")
     existing_python_path = environment.get("PYTHONPATH", "")
     source_directory = workspace / "src"
     environment["PYTHONPATH"] = os.pathsep.join(
@@ -430,8 +437,10 @@ def _run_test_case(
     started_at = time.perf_counter()
     try:
         completed = subprocess.run(
-            [str(python_executable), "-m", "pytest", test_case.node_id, "-q"],
+            [str(python_executable), "-m", "pytest", test_case.node_id, "-q", "--color=no"],
             text=True,
+            encoding=_SUBPROCESS_ENCODING,
+            errors="replace",
             capture_output=True,
             timeout=timeout_seconds,
             cwd=workspace,
@@ -496,7 +505,7 @@ def _captured_output(stdout: str) -> object:
 
 def _timeout_text(value: str | bytes | None) -> str:
     if isinstance(value, bytes):
-        return value.decode(errors="replace")
+        return value.decode(_SUBPROCESS_ENCODING, errors="replace")
     return value or ""
 
 

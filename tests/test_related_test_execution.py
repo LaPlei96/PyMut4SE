@@ -107,6 +107,35 @@ def test_related_tests_observe_the_mutated_module_and_outputs_persist(temp_path:
         assert stored in stored.test_case.execution_outputs
 
 
+def test_related_test_output_decodes_utf8_text(temp_path: Path) -> None:
+    source_path = temp_path / "src"
+    tests_path = temp_path / "tests"
+    source_path.mkdir()
+    tests_path.mkdir()
+    (source_path / "application.py").write_text(
+        "def greeting():\n    return 'café'\n",
+        encoding="utf-8",
+    )
+    (tests_path / "test_application.py").write_text(
+        "from application import greeting\n\n"
+        "def test_greeting():\n"
+        "    assert greeting() == 'cafe'\n",
+        encoding="utf-8",
+    )
+    result = explore_path(source_path)
+    environment = PythonExecutionEnvironment(result.project, Path(sys.prefix))
+
+    executions = StandalonePythonExecution().execute_related_tests(result.code_chunks[0], environment)
+
+    assert len(executions) == 1
+    assert not executions[0].success
+    assert executions[0].output is not None
+    stdout = executions[0].output["stdout"]
+    assert "café" in stdout
+    assert "cafÃ©" not in stdout
+    assert "\x1b[" not in stdout
+
+
 def test_chunk_without_related_tests_runs_the_full_suite_by_default(temp_path: Path) -> None:
     result = _explored_project(temp_path)
     unrelated = next(chunk for chunk in result.code_chunks if chunk.function_name == "other")
