@@ -18,7 +18,8 @@ The project is under active development. The current API supports:
 - cached function and pytest execution; and
 - bounded parallel pytest execution across multiple chunks.
 
-![Demo Video](https://youtu.be/BA-f5JDzD1s)
+[![Youtube demo](https://img.youtube.com/vi/BA-f5JDzD1s/0.jpg)](https://www.youtube.com/watch?v=BA-f5JDzD1s)
+
 
 ## Installation
 
