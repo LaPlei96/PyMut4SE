@@ -18,6 +18,8 @@ The project is under active development. The current API supports:
 - cached function and pytest execution; and
 - bounded parallel pytest execution across multiple chunks.
 
+![Demo Video](https://youtu.be/BA-f5JDzD1s)
+
 ## Installation
 
 PyMut4SE requires Python 3.13 or newer. With [`uv`](https://docs.astral.sh/uv/):
